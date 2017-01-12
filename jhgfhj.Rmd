@@ -1,0 +1,155 @@
+---
+title: "Machine Learning Project"
+author: "Ryan Phillips"
+date: "November 30, 2016"
+output: html_document
+---g
+
+#Background#
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+#Data#
+
+The training data for this project are available here: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+The data for this project come from this source: http://groupware.les.inf.puc-rio.br/har. 
+
+###Detail on how the data was gathered:###
+
+Our outcome variable is classe, a factor variable with 5 levels. For this data set, "participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in 5 different fashions:
+
+ *exactly according to the specification (Class A)
+
+ *throwing the elbows to the front (Class B)
+
+
+ *lifting the dumbbell only halfway (Class C)
+
+
+ *lowering the dumbbell only halfway (Class D)
+
+
+ *throwing the hips to the front (Class E)
+
+
+Class A corresponds to the specified execution of the exercise, while the other 4 classes correspond to common mistakes.
+
+
+##Packages & Seed Load##
+
+```{r, echo=TRUE}
+library(caret); library(randomForest);library(rpart); library(rpart.plot);library(klaR); library(MASS); library(kernlab); set.seed(789654)
+
+```
+
+##Get & Clean Data##
+
+Download:
+```{r}
+download.file(url = "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", destfile = "rpml-training.csv")
+download.file(url = "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", destfile = "rpml-testing.csv")
+
+```
+
+Read into R, Clean up NAs, Delete unneeded data etc.
+```{r}
+trainingpml <- read.csv("rpml-training.csv", na.strings=c("NA","#DIV/0!", ""))
+testingpml <- read.csv("rpml-testing.csv", na.strings=c("NA","#DIV/0!", ""))
+```
+
+```{r}
+trainingpml <- trainingpml[,colSums(is.na(trainingpml)) == 0]
+testingpml <- testingpml[,colSums(is.na(testingpml)) == 0]
+```
+
+```{r}
+trainingpml   <-trainingpml[,-c(1:7)]
+testingpml <-testingpml[,-c(1:7)]
+
+```
+
+##Out of Sample Error Expectations##
+   Due to over fitting, the out of samples error on the true test set (testingpml) will be greater than the in sample error we obtain on our training set.We will attempt to minimize the effect using 5 K-fold cross validation.
+
+```{r}
+control <- trainControl(method = "cv", number = 5)
+```
+
+##Create training and cross validation sets##
+
+Using random sub sampling without replacement, 75% of the current training set will be further split into a true training set that we will use to train our models and the remaining 25% will used to validate our model options. This is done to better estimated the accuracy of our best model when applied to the true test set.
+
+```{r}
+set.seed(7893)
+subsamples <- createDataPartition(y=trainingpml$classe, p=0.75, list=FALSE)
+subTraining <- trainingpml[subsamples, ] 
+subValidation <- trainingpml[-subsamples, ]
+
+```
+
+##Model Creation##
+   I will see which of three models works is the most accurate in predicting the validation data set and hopefully the testing set. I am interested in modeling and predicting a classification/category(A, B,C,D, or E) and will compare three different types of models; a  a tree ensemble using Random Forest(RF), a support vector machine model, & a linear discriminant analysis model. I will then compare the accuracy of the three models at predicting off of the validation set.
+ 
+#Linear Discriminant Analysis Model Creation :#
+```{r}
+set.seed(896)
+LDmModel <- train(classe~., method = "lda", data = subTraining, trControl = control)
+```  
+#Random Forest Model Creation# 
+```{r}
+RFModel <- train(classe ~ ., data = subTraining, method= "rf" , trContrl = control)
+``` 
+#Support Vector Machine Model Creation#
+```{r,echo= FALSE}
+trainctrl <- trainControl(method = 'none')
+```
+
+```{r}
+SVMModel <- train(classe~., data = subTraining, method= "svmRadial", trContrl = control, tuneLength = 1)
+
+```
+
+#Predictions on validation set#
+```{r}
+  LDMValpred <- predict(LDmModel, subValidation)
+  RFValpred = predict(RFModel, subValidation, method = "class")
+  SVMpred <- predict(SVMModel, subValidation)
+```
+
+#Model Validation Set Prediction Comparision#
+```{r}
+LDM <- confusionMatrix(LDMValpred, subValidation$classe)
+RF <- confusionMatrix(RFValpred, subValidation$classe)
+SVM <- confusionMatrix(SVMpred, subValidation$classe)
+
+Table <- data.frame(LDM=LDM$overall[1], 
+                    RF=RF$overall[1], 
+                    SVM=SVM$overall[1])
+Table
+```
+  From this accuracy table it is clear that out of the three model, the best model to use for prediction on the test set is the Random Forest model at 99.2% accuracy. The next most accurate model would be the support vector machine at 87.07% and finally the Linear discriminant model had the worst accuracy at 70.4% 
+
+
+#Prediction using the test data & choosen RF Model#
+```{r}
+finalpred <- predict(RFModel, testingpml)
+```
+
+#Submission#
+```{r}
+answers <- finalpred
+
+pml_write_files <- function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i], file=filename, quote=FALSE, row.names=FALSE, col.names=FALSE)
+  }
+}
+
+pml_write_files(finalpred)
+```
+
